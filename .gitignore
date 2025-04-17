@@ -1,0 +1,42 @@
+# === Node.js ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+.env
+
+# === Unity ===
+[Ll]ibrary/
+[Ll]ogs/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+Assets/AssetStoreTools*
+*.csproj
+*.unityproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.svd
+*.suo
+
+# === Cocos Creator ===
+local/
+temp/
+build/
+library/
+*.manifest
+.DS_Store
+.settings/
+
+# === System ===
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.bak
+*.tmp
