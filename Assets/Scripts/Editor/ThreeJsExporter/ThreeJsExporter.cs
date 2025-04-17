@@ -26,7 +26,6 @@ namespace ThreeJsExporter
 
             string json = JsonConvert.SerializeObject(scene, SimpleScene.GetSerializerSettings());
             
-            // Загрузка шаблона из ресурсов
             TextAsset templateAsset = Resources.Load<TextAsset>("ThreeJsExporter/scene-viewer");
             
             if (templateAsset == null)
@@ -45,7 +44,6 @@ namespace ThreeJsExporter
             
             Debug.Log($"HTML5 scene exported to: {path}");
             
-            // Открываем файл в браузере
             if (EditorUtility.DisplayDialog("Export Complete", 
                 $"HTML5 scene has been exported to:\n{path}\n\nWould you like to open it now?", 
                 "Open in Browser", "Close"))

@@ -1,4 +1,3 @@
-// ThreeJsSceneBuilder.cs
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System;
