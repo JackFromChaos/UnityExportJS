@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unity Scene Viewer</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000;
+            font-family: Arial, sans-serif;
+        }
+        canvas { 
+            display: block; 
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            pointer-events: none;
+        }
+        #hierarchy {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 200px;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        #hierarchy h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #555;
+            padding-bottom: 5px;
+        }
+        .hierarchy-item {
+            padding: 3px 0 3px 10px;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hierarchy-item:hover {
+            background-color: #444;
+        }
+        .hierarchy-toggle {
+            margin-right: 5px;
+            user-select: none;
+        }
+        .hierarchy-children {
+            padding-left: 15px;
+            display: none;
+        }
+        .expanded > .hierarchy-children {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">Unity Scene Exported to Three.js</div>
+    <div id="hierarchy">
+        <h2>Hierarchy</h2>
+        <div id="hierarchy-content"></div>
+    </div>
+    <script id="sceneData" type="application/json">
+{{SCENE_DATA}}
+    </script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <script>
+        const sceneDataElement = document.getElementById('sceneData');
+        const sceneData = JSON.parse(sceneDataElement.textContent);
+        
+        let scene, camera, renderer, controls;
+        const objectsById = {};
+        const cameras = {};
+        let currentCameraId = null;
+        
+        init();
+        animate();
+        
+        function init() {
+            if (sceneData.scene && sceneData.scene.name) {
+                document.getElementById('info').textContent = sceneData.scene.name;
+                document.title = sceneData.scene.name + " - Unity Scene Viewer";
+            }
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a75ff);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+            
+            // Создаем все камеры из данных сцены
+            if (sceneData.camera) {
+                const cameraData = sceneData.camera;
+                camera = createCameraFromData(cameraData);
+                cameras[cameraData.id] = camera;
+                objectsById[cameraData.id] = camera;
+                currentCameraId = cameraData.id;
+            } else {
+                // Создаем камеру по умолчанию
+                camera = new THREE.PerspectiveCamera(
+                    75, 
+                    window.innerWidth / window.innerHeight, 
+                    0.1, 
+                    1000
+                );
+                camera.position.z = 5;
+                camera.name = "Default Camera";
+                camera.userData = { id: "default_camera", type: "PerspectiveCamera" };
+                cameras["default_camera"] = camera;
+                objectsById["default_camera"] = camera;
+                currentCameraId = "default_camera";
+            }
+            
+            // Создаем контролы для текущей камеры
+            setupControls();
+            
+            if (sceneData.scene) {
+                createObjectsFromData(sceneData.scene, null);
+                buildHierarchyUI(sceneData.scene);
+                
+                // Добавляем основную камеру к иерархии, если она не включена в сцену
+                if (sceneData.camera && !objectsById[sceneData.camera.id].parent) {
+                    buildCameraHierarchyUI(sceneData.camera);
+                }
+            }
+            
+            const ambientLight = new THREE.AmbientLight(0x606060, 1.0);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+            
+            const planeGeometry = new THREE.PlaneGeometry(10, 10);
+            const planeMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x999999, 
+                transparent: true, 
+                opacity: 0.5,
+                side: THREE.DoubleSide
+            });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = Math.PI / 2;
+            plane.position.y = -0.5;
+            scene.add(plane);
+            
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function setupControls() {
+            if (controls) {
+                controls.dispose();
+            }
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.25;
+        }
+        
+        function createCameraFromData(cameraData) {
+            const cam = new THREE.PerspectiveCamera(
+                cameraData.fov || 75,
+                cameraData.aspect || window.innerWidth / window.innerHeight,
+                cameraData.near || 0.1,
+                cameraData.far || 1000
+            );
+            
+            cam.position.set(
+                cameraData.position[0], 
+                cameraData.position[1], 
+                cameraData.position[2]
+            );
+            
+            cam.rotation.set(
+                cameraData.rotation[0], 
+                cameraData.rotation[1], 
+                cameraData.rotation[2]
+            );
+            
+            cam.name = cameraData.name;
+            cam.userData = {
+                id: cameraData.id,
+                type: "PerspectiveCamera"
+            };
+            
+            return cam;
+        }
+        
+        function createObjectsFromData(objectData, parent) {
+            let object;
+            
+            switch(objectData.type) {
+                case 'Scene':
+                    object = new THREE.Group();
+                    break;
+                    
+                case 'Group':
+                    object = new THREE.Group();
+                    break;
+                    
+                case 'Box':
+                    const geometry = new THREE.BoxGeometry();
+                    const material = new THREE.MeshStandardMaterial({ 
+                        color: 0xaaaaaa, 
+                        metalness: 0.3,
+                        roughness: 0.8
+                    });
+                    object = new THREE.Mesh(geometry, material);
+                    break;
+                    
+                case 'PerspectiveCamera':
+                    // Создаем камеру для отображения в сцене
+                    object = createCameraFromData(objectData);
+                    cameras[objectData.id] = object;
+                    break;
+                    
+                default:
+                    return;
+            }
+            
+            if (object) {
+                object.name = objectData.name || 'UnnamedObject';
+                object.userData = {
+                    id: objectData.id,
+                    type: objectData.type
+                };
+                objectsById[objectData.id] = object;
+                
+                if (objectData.position) {
+                    object.position.set(
+                        objectData.position[0],
+                        objectData.position[1],
+                        objectData.position[2]
+                    );
+                }
+                
+                if (objectData.rotation) {
+                    object.rotation.set(
+                        objectData.rotation[0],
+                        objectData.rotation[1],
+                        objectData.rotation[2]
+                    );
+                }
+                
+                if (objectData.scale) {
+                    object.scale.set(
+                        objectData.scale[0],
+                        objectData.scale[1],
+                        objectData.scale[2]
+                    );
+                }
+                
+                if (parent) {
+                    parent.add(object);
+                } else {
+                    scene.add(object);
+                }
+                
+                if (objectData.children && objectData.children.length > 0) {
+                    for (const childData of objectData.children) {
+                        createObjectsFromData(childData, object);
+                    }
+                }
+            }
+        }
+        
+        function buildHierarchyUI(objectData, parentElement = null) {
+            const container = parentElement || document.getElementById('hierarchy-content');
+            
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'hierarchy-item-container';
+            container.appendChild(itemDiv);
+            
+            const itemContent = document.createElement('div');
+            itemContent.className = 'hierarchy-item';
+            itemContent.setAttribute('data-id', objectData.id);
+            itemDiv.appendChild(itemContent);
+            
+            let toggleSpan = null;
+            
+            if (objectData.children && objectData.children.length > 0) {
+                toggleSpan = document.createElement('span');
+                toggleSpan.className = 'hierarchy-toggle';
+                toggleSpan.textContent = '►';
+                itemContent.appendChild(toggleSpan);
+                
+                itemContent.addEventListener('click', function(event) {
+                    event.stopPropagation();
+                    const isExpanded = itemDiv.classList.contains('expanded');
+                    if (isExpanded) {
+                        itemDiv.classList.remove('expanded');
+                        toggleSpan.textContent = '►';
+                    } else {
+                        itemDiv.classList.add('expanded');
+                        toggleSpan.textContent = '▼';
+                    }
+                });
+            }
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = objectData.name + (objectData.type ? ` (${objectData.type})` : '');
+            itemContent.appendChild(nameSpan);
+            
+            itemContent.addEventListener('click', function(event) {
+                event.stopPropagation();
+                const id = this.getAttribute('data-id');
+                const obj = objectsById[id];
+                
+                if (obj) {
+                    if (obj.userData.type === 'PerspectiveCamera') {
+                        // Если это камера, переключаемся на нее
+                        switchToCamera(id);
+                    } else {
+                        // Для других объектов фокусируем камеру на объекте
+                        focusOnObject(obj);
+                    }
+                }
+            });
+            
+            if (objectData.children && objectData.children.length > 0) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'hierarchy-children';
+                itemDiv.appendChild(childrenContainer);
+                
+                for (const childData of objectData.children) {
+                    buildHierarchyUI(childData, childrenContainer);
+                }
+            }
+        }
+        
+        function buildCameraHierarchyUI(cameraData) {
+            const container = document.getElementById('hierarchy-content');
+            
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'hierarchy-item-container';
+            container.appendChild(itemDiv);
+            
+            const itemContent = document.createElement('div');
+            itemContent.className = 'hierarchy-item';
+            itemContent.setAttribute('data-id', cameraData.id);
+            itemDiv.appendChild(itemContent);
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = cameraData.name + ' (PerspectiveCamera)';
+            itemContent.appendChild(nameSpan);
+            
+            itemContent.addEventListener('click', function(event) {
+                event.stopPropagation();
+                const id = this.getAttribute('data-id');
+                switchToCamera(id);
+            });
+        }
+        
+        function switchToCamera(cameraId) {
+            if (!cameras[cameraId] || cameraId === currentCameraId) {
+                return;
+            }
+            
+            // Запоминаем текущую позицию и ориентацию контролов
+            const oldTarget = controls.target.clone();
+            
+            // Переключаемся на новую камеру
+            camera = cameras[cameraId];
+            currentCameraId = cameraId;
+            
+            // Пересоздаем контролы для новой камеры
+            setupControls();
+            
+            // Восстанавливаем цель контролов
+            controls.target.copy(oldTarget);
+            
+            // Обновляем информацию о текущей камере
+            document.getElementById('info').textContent = 
+                (sceneData.scene ? sceneData.scene.name : 'Scene') + ' - Camera: ' + camera.name;
+        }
+        
+        function focusOnObject(obj) {
+            // Фокусируем камеру на объекте
+            const boundingBox = new THREE.Box3().setFromObject(obj);
+            const center = boundingBox.getCenter(new THREE.Vector3());
+            const size = boundingBox.getSize(new THREE.Vector3());
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = camera.fov * (Math.PI / 180);
+            let cameraZ = Math.abs(maxDim / Math.sin(fov / 2));
+            
+            const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            
+            const targetPosition = new THREE.Vector3();
+            targetPosition.copy(center).add(direction.multiplyScalar(-cameraZ * 1.5));
+            
+            controls.target.copy(center);
+            camera.position.copy(targetPosition);
+            controls.update();
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
